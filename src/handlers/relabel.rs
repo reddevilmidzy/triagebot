@@ -10,8 +10,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::db::issue_data::IssueData;
 use crate::errors::user_error;
-use crate::github::Label;
+use crate::github::{Label, ReportedContentClassifiers};
 use crate::team_data::TeamClient;
 use crate::{
     config::RelabelConfig,
@@ -22,6 +23,16 @@ use anyhow::Context as _;
 use parser::command::relabel::{LabelDelta, RelabelCommand};
 
 use tracing as log;
+
+/// Key for the state in the database
+const RELABEL_KEY: &str = "relabel";
+
+/// State stored in the database
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone, PartialEq)]
+struct RelabelState {
+    /// ID of the most recent relabel comment.
+    last_comment: Option<String>,
+}
 
 pub(super) async fn handle_command(
     ctx: &Context,
@@ -72,6 +83,26 @@ pub(super) async fn handle_command(
         .remove_labels(&ctx.github, to_remove.clone())
         .await
         .context("failed to remove labels from the issue")?;
+
+    // check contains only relabel command
+    // and then hide comment
+    let mut db = ctx.db.get().await;
+    let mut state: IssueData<'_, RelabelState> =
+        IssueData::load(&mut db, &issue, RELABEL_KEY).await?;
+    if let Some(last_comment) = state.data.last_comment {
+        issue
+            .hide_comment(
+                &ctx.github,
+                &last_comment,
+                ReportedContentClassifiers::Resolved,
+            )
+            .await
+            .context("failed to hide comment")?;
+        state.data.last_comment = None;
+    }
+
+    // Save new state in the database
+    state.save().await?;
 
     Ok(())
 }

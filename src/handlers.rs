@@ -262,7 +262,7 @@ pub async fn handle(ctx: &Context, host: &str, event: &Event) -> Vec<HandlerErro
         prune_gh_comments,
         check_commits,
         project_goals,
-        rustc_commits,
+        commits,
         milestone_prs,
         rendered_link,
         view_all_comments,
